@@ -64,7 +64,12 @@ cp "$SOURCE_PLIST" "$TARGET_PLIST"
 
 if command -v codesign >/dev/null 2>&1; then
   echo "Signing app bundle (ad-hoc)..."
-  codesign --force --deep --sign - "$APP_BUNDLE"
+  ENTITLEMENTS="$APP_DIR/Resources/SonoText.entitlements"
+  if [[ -f "$ENTITLEMENTS" ]]; then
+    codesign --force --deep --sign - --entitlements "$ENTITLEMENTS" "$APP_BUNDLE"
+  else
+    codesign --force --deep --sign - "$APP_BUNDLE"
+  fi
 fi
 
 ln -sfn /Applications "$STAGING_DIR/Applications"

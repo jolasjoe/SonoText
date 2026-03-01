@@ -120,8 +120,9 @@ cp "$BUILT_BINARY" "$APP_BINARY"
 chmod +x "$APP_BINARY"
 cp "$SOURCE_PLIST" "$TARGET_PLIST"
 
+ENTITLEMENTS="$APP_DIR/Resources/SonoText.entitlements"
 echo "Signing app bundle with Developer ID..."
-codesign --force --deep --timestamp --options runtime --sign "$DEVELOPER_ID_APPLICATION" "$APP_BUNDLE"
+codesign --force --deep --timestamp --options runtime --entitlements "$ENTITLEMENTS" --sign "$DEVELOPER_ID_APPLICATION" "$APP_BUNDLE"
 codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
 
 if [[ "$SKIP_NOTARIZE" -eq 0 ]]; then

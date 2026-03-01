@@ -2,35 +2,6 @@ import SwiftUI
 import AppKit
 import AVFoundation
 
-// #region agent log — exportable debug log (~/Library/Logs/SonoText/debug.log)
-private func _exportLog(_ message: String, hypothesisId: String, data: [String: String] = [:]) {
-    let payload: [String: Any] = [
-        "sessionId": "b2fe33",
-        "hypothesisId": hypothesisId,
-        "location": "SonoText.swift",
-        "message": message,
-        "data": data,
-        "timestamp": Int(Date().timeIntervalSince1970 * 1000)
-    ]
-    guard let json = try? JSONSerialization.data(withJSONObject: payload),
-          let line = String(data: json, encoding: .utf8) else { return }
-    let logDir = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/Logs/SonoText", isDirectory: true)
-    try? FileManager.default.createDirectory(at: logDir, withIntermediateDirectories: true)
-    let logFile = logDir.appendingPathComponent("debug.log")
-    let lineData = (line + "\n").data(using: .utf8)!
-    if FileManager.default.fileExists(atPath: logFile.path) {
-        if let handle = try? FileHandle(forWritingTo: logFile) {
-            handle.seekToEndOfFile()
-            handle.write(lineData)
-            try? handle.close()
-        }
-    } else {
-        try? lineData.write(to: logFile)
-    }
-}
-// #endregion
-
 @main
 struct SonoText: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
@@ -270,28 +241,15 @@ struct OnboardingView: View {
     }
     
     private func requestMicrophonePermission() {
-        // #region agent log
         let status = AVCaptureDevice.authorizationStatus(for: .audio)
-        let statusStr = { () -> String in switch status { case .notDetermined: return "notDetermined"; case .restricted: return "restricted"; case .denied: return "denied"; case .authorized: return "authorized"; @unknown default: return "unknown" } }()
-        _exportLog("requestMicrophonePermission called", hypothesisId: "MIC", data: ["authStatus": statusStr])
-        // #endregion
         switch status {
         case .notDetermined:
-            // #region agent log
-            _exportLog("calling requestAccess(for: .audio)", hypothesisId: "MIC", data: [:])
-            // #endregion
             AVCaptureDevice.requestAccess(for: .audio) { granted in
-                // #region agent log
-                _exportLog("requestAccess completion", hypothesisId: "MIC", data: ["granted": granted.description])
-                // #endregion
                 DispatchQueue.main.async {
                     appState.refreshPermissions()
                 }
             }
         case .denied, .restricted:
-            // #region agent log
-            _exportLog("opening Privacy Microphone (denied/restricted)", hypothesisId: "MIC", data: [:])
-            // #endregion
             openPrivacySettings(anchor: "Microphone")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 appState.refreshPermissions()
@@ -304,6 +262,8 @@ struct OnboardingView: View {
     }
     
     private func requestAccessibilityPermission() {
+        NSApp.keyWindow?.resignKey()
+        NSApp.deactivate()
         KeystrokeSynthesizer.shared.requestAccessibility()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
             appState.refreshPermissions()

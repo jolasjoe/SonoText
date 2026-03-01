@@ -74,7 +74,7 @@ jobs:
             echo "$IDENTITIES"
             exit 1
           fi
-          codesign --force --deep --sign "$APPLE_SIGNING_IDENTITY" --options runtime "$RUNNER_TEMP/SonoText.app"
+          codesign --force --deep --sign "$APPLE_SIGNING_IDENTITY" --options runtime --entitlements SonoText/Resources/SonoText.entitlements "$RUNNER_TEMP/SonoText.app"
           rm -f "$RUNNER_TEMP/cert.p12"
 
       - name: Notarize app
