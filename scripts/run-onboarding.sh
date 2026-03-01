@@ -12,17 +12,23 @@ SOURCE_PLIST_PATH="$APP_DIR/Resources/Info.plist"
 BINARY_PATH="$APP_DIR/.build/release/SonoText"
 
 FULL_RESET=0
+REBIRTH_RESET=0
 
 usage() {
-  echo "Usage: $(basename "$0") [--full]"
+  echo "Usage: $(basename "$0") [--full] [--rebirth]"
   echo
   echo "  --full   Also remove local Whisper models to replay download onboarding."
+  echo "  --rebirth  Full reset + reset TCC permissions (Microphone/Accessibility/Input Monitoring/Automation)."
 }
 
 for arg in "$@"; do
   case "$arg" in
     --full)
       FULL_RESET=1
+      ;;
+    --rebirth)
+      FULL_RESET=1
+      REBIRTH_RESET=1
       ;;
     -h|--help)
       usage
@@ -53,7 +59,7 @@ fi
 
 if [[ ! -w "/Applications" ]]; then
   echo "No write permission to /Applications. Re-run with sudo:" >&2
-  echo "  sudo ./scripts/run-onboarding.sh [--full]" >&2
+  echo "  sudo ./scripts/run-onboarding.sh [--full|--rebirth]" >&2
   exit 1
 fi
 
@@ -63,10 +69,26 @@ pkill -x SonoText >/dev/null 2>&1 || true
 echo "Resetting onboarding flag..."
 defaults delete com.sonotext.mac onboarding_complete >/dev/null 2>&1 || true
 defaults delete SonoText onboarding_complete >/dev/null 2>&1 || true
+if [[ -n "${SUDO_USER:-}" ]]; then
+  sudo -u "$SUDO_USER" defaults delete com.sonotext.mac onboarding_complete >/dev/null 2>&1 || true
+  sudo -u "$SUDO_USER" defaults delete SonoText onboarding_complete >/dev/null 2>&1 || true
+fi
 
 if [[ "$FULL_RESET" -eq 1 ]]; then
   echo "Removing local Whisper models for full first-run onboarding..."
   rm -rf "$MODEL_DIR"
+fi
+
+if [[ "$REBIRTH_RESET" -eq 1 ]]; then
+  if ! command -v tccutil >/dev/null 2>&1; then
+    echo "tccutil not found; skipping TCC permission reset." >&2
+  else
+    echo "Resetting TCC permissions for com.sonotext.mac..."
+    tccutil reset Microphone com.sonotext.mac >/dev/null 2>&1 || true
+    tccutil reset Accessibility com.sonotext.mac >/dev/null 2>&1 || true
+    tccutil reset ListenEvent com.sonotext.mac >/dev/null 2>&1 || true
+    tccutil reset AppleEvents com.sonotext.mac >/dev/null 2>&1 || true
+  fi
 fi
 
 echo "Preparing clean release build..."

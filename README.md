@@ -20,6 +20,14 @@ If `/Applications` is not writable on your machine, run:
 sudo ./scripts/run-onboarding.sh
 ```
 
+For a true first-day replay (model redownload + permission prompts again), use:
+
+```bash
+./scripts/run-onboarding.sh --rebirth
+# or with sudo if needed
+sudo ./scripts/run-onboarding.sh --rebirth
+```
+
 On first launch, complete onboarding and grant:
 - Microphone
 - Accessibility
@@ -132,6 +140,14 @@ rm -rf "$HOME/Library/Application Support/SonoText/Models"
 ./scripts/run-onboarding.sh --full
 # use sudo if needed:
 # sudo ./scripts/run-onboarding.sh --full
+```
+
+One-command equivalent:
+
+```bash
+./scripts/run-onboarding.sh --rebirth
+# use sudo if needed:
+# sudo ./scripts/run-onboarding.sh --rebirth
 ```
 
 This script launches a stable app bundle at `/Applications/SonoText.app` (via `open`) and ad-hoc signs it so macOS permission prompts and TCC tracking behave like a normal app.

@@ -45,6 +45,9 @@ Launching as a real `.app` bundle (rather than via `swift run`) is required for 
 
 # Full first-run replay (also wipes local Whisper model cache)
 ./scripts/run-onboarding.sh --full
+
+# Full "rebirth" replay (model cache + TCC permission resets)
+./scripts/run-onboarding.sh --rebirth
 ```
 
 Writing to `/Applications` may require admin rights; prefix with `sudo` if needed.
