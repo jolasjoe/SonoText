@@ -63,6 +63,8 @@ jobs:
           echo "$APPLE_CERTIFICATE_BASE64" | base64 -d > "$RUNNER_TEMP/cert.p12"
           security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "${APPLE_KEYCHAIN_PASSWORD:-signing}" "$KEYCHAIN_PATH"
+          # Add temporary keychain to search list so codesign can find the identity
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
           codesign --force --deep --sign "$APPLE_SIGNING_IDENTITY" --options runtime "$RUNNER_TEMP/SonoText.app"
           rm -f "$RUNNER_TEMP/cert.p12"
 
