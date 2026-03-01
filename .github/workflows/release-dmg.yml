@@ -65,6 +65,15 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "${APPLE_KEYCHAIN_PASSWORD:-signing}" "$KEYCHAIN_PATH"
           # Add temporary keychain to search list so codesign can find the identity
           security list-keychains -d user -s "$KEYCHAIN_PATH"
+          # Require Developer ID Application (not Apple Development); notarization needs Developer ID
+          IDENTITIES=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" 2>/dev/null || true)
+          if ! echo "$IDENTITIES" | grep -q "Developer ID Application"; then
+            echo "::error::The .p12 must contain a **Developer ID Application** certificate, not Apple Development."
+            echo "Create one at: https://developer.apple.com/account/resources/certificates/list (Developer ID Application)"
+            echo "Imported identities:"
+            echo "$IDENTITIES"
+            exit 1
+          fi
           codesign --force --deep --sign "$APPLE_SIGNING_IDENTITY" --options runtime "$RUNNER_TEMP/SonoText.app"
           rm -f "$RUNNER_TEMP/cert.p12"
 

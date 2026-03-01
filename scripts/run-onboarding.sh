@@ -9,6 +9,7 @@ BUNDLE_CONTENTS_DIR="$BUNDLE_DIR/Contents"
 BUNDLE_MACOS_DIR="$BUNDLE_CONTENTS_DIR/MacOS"
 BUNDLE_PLIST_PATH="$BUNDLE_CONTENTS_DIR/Info.plist"
 SOURCE_PLIST_PATH="$APP_DIR/Resources/Info.plist"
+BUILD_DIR="$ROOT_DIR/.build-onboarding"
 BINARY_PATH="$APP_DIR/.build/release/SonoText"
 
 FULL_RESET=0
@@ -94,15 +95,18 @@ fi
 echo "Preparing clean release build..."
 (
   cd "$APP_DIR"
-  swift package clean
+  swift package clean 2>/dev/null || true
 )
-rm -rf "$APP_DIR/.build"
-
+rm -rf "$BUILD_DIR"
 echo "Building release executable..."
 (
   cd "$APP_DIR"
-  swift build -c release
+  swift build -c release --build-path "$BUILD_DIR"
 )
+BINARY_PATH=$(find "$BUILD_DIR" -maxdepth 5 -type f -name SonoText 2>/dev/null | head -1)
+if [[ -z "$BINARY_PATH" ]]; then
+  BINARY_PATH="$BUILD_DIR/arm64-apple-macosx/release/SonoText"
+fi
 
 if [[ ! -x "$BINARY_PATH" ]]; then
   echo "Built executable not found: $BINARY_PATH" >&2

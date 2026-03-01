@@ -241,7 +241,7 @@ struct OnboardingView: View {
     }
     
     private func requestMicrophonePermission() {
-        AVCaptureDevice.requestAccess(for: .audio) { _ in
+        AVCaptureDevice.requestAccess(for: .audio) { granted in
             DispatchQueue.main.async {
                 appState.refreshPermissions()
             }
@@ -642,7 +642,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             logger.notice("\"⏳ Engine still loading, ignoring right Option press\"")
             return
         }
-        guard appState.isOnboardingComplete else { return }
+        guard appState.isOnboardingComplete || appState.hasAllRequiredPermissions else {
+            return
+        }
         guard !audioRecorder.isRecording else { return }
         if case .processing = appState.status { return }
         guard appState.hasAllRequiredPermissions else {
