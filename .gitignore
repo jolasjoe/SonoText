@@ -14,3 +14,13 @@ DerivedData/
 # Local config (optional)
 .env
 .env.local
+
+# Cursor / local IDE state
+.cursor/
+
+# Custom SwiftPM scratch builds
+.swift-build*/
+
+# Local distribution artifacts
+dist/
+*.dmg
