@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_DIR="$ROOT_DIR/SonoText"
-DIST_DIR="$ROOT_DIR/dist"
+DIST_DIR="$ROOT_DIR/output"
 STAGING_DIR="$DIST_DIR/dmg-root"
 APP_BUNDLE="$STAGING_DIR/SonoText.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run the same steps as the Release DMG GitHub Action locally.
 # Use this to verify the build and DMG creation work before relying on CI.
-# Does not upload to any release; outputs a .dmg in the repo root.
+# Does not upload to any release; outputs a .dmg in the output/ folder.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -9,7 +9,9 @@ APP_DIR="$ROOT_DIR/SonoText"
 BUILD_DIR="$ROOT_DIR/.build-release"
 BUNDLE_DIR="${RUNNER_TEMP:-/tmp}/SonoText-release.app"
 DMG_NAME="${1:-SonoText-local.dmg}"
-OUTPUT_DMG="$ROOT_DIR/$DMG_NAME"
+OUTPUT_DIR="$ROOT_DIR/output"
+OUTPUT_DMG="$OUTPUT_DIR/$DMG_NAME"
+mkdir -p "$OUTPUT_DIR"
 
 # Use a dedicated build dir the current user owns (avoids permission errors when SonoText/.build was created by root).
 echo "Build release binary..."
@@ -33,6 +35,11 @@ codesign --force --deep --sign - "$BUNDLE_DIR"
 
 echo "Create DMG: $OUTPUT_DMG..."
 rm -f "$OUTPUT_DMG"
-hdiutil create -volname "SonoText" -srcfolder "$BUNDLE_DIR" -ov -format UDZO "$OUTPUT_DMG"
+DMG_STAGING="${RUNNER_TEMP:-/tmp}/dmg-staging-$$"
+mkdir -p "$DMG_STAGING"
+cp -R "$BUNDLE_DIR" "$DMG_STAGING/SonoText.app"
+ln -s /Applications "$DMG_STAGING/Applications"
+hdiutil create -volname "SonoText" -srcfolder "$DMG_STAGING" -ov -format UDZO "$OUTPUT_DMG"
+rm -rf "$DMG_STAGING"
 
 echo "Done. DMG: $OUTPUT_DMG"

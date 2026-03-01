@@ -1,11 +1,11 @@
-# Runs when a release is published: builds the app, creates a .dmg, and uploads it to the release.
+# Runs when a release is published: builds the app, signs with Developer ID, notarizes, creates a .dmg, and uploads it.
+# Requires Apple Developer secrets (see docs/RELEASE-NOTARIZATION.md). The workflow fails if they are missing.
 name: Release DMG
 
 on:
   release:
     types: [published]
 
-# Required for uploading assets to the release.
 permissions:
   contents: write
 
@@ -14,8 +14,30 @@ jobs:
     runs-on: macos-latest
     env:
       DMG_NAME: SonoText-${{ github.event.release.tag_name }}.dmg
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
 
     steps:
+      - name: Require Apple notarization secrets
+        run: |
+          missing=""
+          [ -z "$APPLE_SIGNING_IDENTITY" ] && missing="$missing APPLE_SIGNING_IDENTITY"
+          [ -z "$APPLE_CERTIFICATE_BASE64" ] && missing="$missing APPLE_CERTIFICATE_BASE64"
+          [ -z "$APPLE_CERTIFICATE_PASSWORD" ] && missing="$missing APPLE_CERTIFICATE_PASSWORD"
+          [ -z "$APPLE_ID" ] && missing="$missing APPLE_ID"
+          [ -z "$APPLE_APP_SPECIFIC_PASSWORD" ] && missing="$missing APPLE_APP_SPECIFIC_PASSWORD"
+          [ -z "$APPLE_TEAM_ID" ] && missing="$missing APPLE_TEAM_ID"
+          if [ -n "$missing" ]; then
+            echo "::error::Release DMG requires Apple notarization. Add these repository secrets:${missing}"
+            echo "See docs/RELEASE-NOTARIZATION.md for setup."
+            exit 1
+          fi
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -32,16 +54,41 @@ jobs:
           chmod +x "$BUNDLE_DIR/Contents/MacOS/SonoText"
           cp SonoText/Resources/Info.plist "$BUNDLE_DIR/Contents/Info.plist"
 
-      - name: Ad-hoc sign app bundle
+      - name: Import certificate and sign with Developer ID
         run: |
-          codesign --force --deep --sign - "$RUNNER_TEMP/SonoText.app"
+          KEYCHAIN_PATH="$RUNNER_TEMP/signing.keychain-db"
+          security create-keychain -p "${APPLE_KEYCHAIN_PASSWORD:-signing}" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "${APPLE_KEYCHAIN_PASSWORD:-signing}" "$KEYCHAIN_PATH"
+          echo "$APPLE_CERTIFICATE_BASE64" | base64 -d > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "${APPLE_KEYCHAIN_PASSWORD:-signing}" "$KEYCHAIN_PATH"
+          codesign --force --deep --sign "$APPLE_SIGNING_IDENTITY" --options runtime "$RUNNER_TEMP/SonoText.app"
+          rm -f "$RUNNER_TEMP/cert.p12"
+
+      - name: Notarize app
+        run: |
+          cd "$RUNNER_TEMP"
+          ditto -c -k --keepParent SonoText.app SonoText.app.zip
+          xcrun notarytool submit SonoText.app.zip \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+          xcrun stapler staple -v SonoText.app
+          rm -f SonoText.app.zip
 
       - name: Create DMG
         run: |
-          hdiutil create -volname "SonoText" -srcfolder "$RUNNER_TEMP/SonoText.app" -ov -format UDZO "$GITHUB_WORKSPACE/$DMG_NAME"
+          DMG_STAGING="$RUNNER_TEMP/dmg-staging"
+          mkdir -p "$DMG_STAGING"
+          cp -R "$RUNNER_TEMP/SonoText.app" "$DMG_STAGING/"
+          ln -s /Applications "$DMG_STAGING/Applications"
+          mkdir -p "$GITHUB_WORKSPACE/output"
+          hdiutil create -volname "SonoText" -srcfolder "$DMG_STAGING" -ov -format UDZO "$GITHUB_WORKSPACE/output/$DMG_NAME"
 
       - name: Upload DMG to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload "${{ github.event.release.tag_name }}" "$GITHUB_WORKSPACE/$DMG_NAME" --clobber
+          gh release upload "${{ github.event.release.tag_name }}" "$GITHUB_WORKSPACE/output/$DMG_NAME" --clobber

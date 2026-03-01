@@ -25,6 +25,8 @@ swift run SonoText
 
 The release binary is output to `SonoText/.build/release/SonoText`. There is no test suite.
 
+Release, test, and debug script output (DMGs, etc.) goes in **`output/`** at the repo root (gitignored).
+
 ## Dev Launch Script (preferred)
 
 Always use `scripts/run-onboarding.sh` from the repo root instead of `swift run` directly. It:

@@ -22,6 +22,7 @@ DerivedData/
 .swift-build*/
 .build-release/
 
-# Local distribution artifacts
+# Local distribution artifacts and build output (release, test, debug)
+output/
 dist/
 *.dmg

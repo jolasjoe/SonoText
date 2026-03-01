@@ -38,6 +38,21 @@ If macOS shows "cannot be opened because the developer cannot be verified", righ
 
 ---
 
+## Releases / DMG
+
+Release DMGs (from the [Releases](https://github.com/jolasjoe/SonoText/releases) page) are **signed and notarized** by Apple so installers are not blocked. They include **SonoText.app** and an **Applications** shortcut.
+
+**Install steps:**  
+1. Double-click the DMG to mount it.  
+2. **In the Finder window that opens**, drag **SonoText** onto the **Applications** shortcut (do not double-click the app to run it from the DMG).  
+3. Eject the volume, then open **SonoText** from your **Applications** folder.
+
+You may need to allow **Automation (System Events)** when prompted so the app can paste dictation into other apps.
+
+**Maintainers:** The release workflow requires Apple Developer secrets to notarize the DMG. Configure them once using [docs/RELEASE-NOTARIZATION.md](docs/RELEASE-NOTARIZATION.md); without them, the workflow fails when you publish a release.
+
+---
+
 ## Prerequisites
 
 - **macOS 14+**
@@ -76,6 +91,8 @@ swift build -c release
 ```
 
 The release binary is at `SonoText/.build/release/SonoText`.
+
+Scripts that produce release, test, or debug artifacts (e.g. `scripts/build-release-dmg.sh`, `scripts/build-dmg.sh`) write to the **`output/`** folder at the repo root; it is gitignored.
 
 ---
 
