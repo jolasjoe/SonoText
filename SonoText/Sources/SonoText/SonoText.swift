@@ -53,6 +53,9 @@ class AppState: ObservableObject {
     var hasAllRequiredPermissions: Bool {
         isMicrophoneGranted && isAccessibilityGranted && isInputMonitoringGranted
     }
+    var shouldShowSetup: Bool {
+        !isOnboardingComplete || !hasAllRequiredPermissions
+    }
     
     func completeOnboarding() {
         UserDefaults.standard.set(true, forKey: "onboarding_complete")
@@ -408,10 +411,10 @@ struct MainPanelView: View {
     var onClose: () -> Void
     
     var body: some View {
-        if appState.isOnboardingComplete {
-            FloatingWidgetView(appState: appState, audioRecorder: audioRecorder, onClose: onClose)
-        } else {
+        if appState.shouldShowSetup {
             OnboardingView(appState: appState, whisperService: whisperService)
+        } else {
+            FloatingWidgetView(appState: appState, audioRecorder: audioRecorder, onClose: onClose)
         }
     }
 }
@@ -490,6 +493,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let audioRecorder = AudioRecorder()
     let rightOptionMonitor = RightOptionPressMonitor()
     private var previousApp: NSRunningApplication?
+    private var permissionRefreshTimer: Timer?
     private let triggerModeKey = "dictation_trigger_mode"
     
     // Panel sizes
@@ -509,6 +513,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         rightOptionMonitor.onRelease = { [weak self] in self?.handleRightOptionRelease() }
         rightOptionMonitor.onDoubleTap = { [weak self] in self?.handleRightOptionDoubleTap() }
         rightOptionMonitor.start()
+        appState.refreshPermissions()
+        permissionRefreshTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.appState.refreshPermissions()
+        }
         
         // Listen for onboarding completion to resize panel
         NotificationCenter.default.addObserver(
@@ -537,6 +545,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         
         logger.notice("🟢 SonoText launched. Onboarding complete: \(self.appState.isOnboardingComplete)")
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        permissionRefreshTimer?.invalidate()
+        permissionRefreshTimer = nil
     }
     
     func setupFloatingPanel() {
