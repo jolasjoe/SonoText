@@ -14,11 +14,13 @@ class AudioRecorder: ObservableObject {
     init() {
         recordingURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("sonotext_capture.wav")
+        audioLogger.debug("Recorder initialized. Output path: \(self.recordingURL.path, privacy: .public)")
     }
 
     func startRecording() {
         let inputNode = audioEngine.inputNode
         let hwFormat  = inputNode.outputFormat(forBus: 0)
+        audioLogger.debug("Start requested. sampleRate=\(hwFormat.sampleRate, format: .fixed(precision: 0)) channels=\(hwFormat.channelCount, privacy: .public)")
 
         do {
             audioFile = try AVAudioFile(forWriting: recordingURL, settings: hwFormat.settings)
@@ -26,7 +28,11 @@ class AudioRecorder: ObservableObject {
             inputNode.installTap(onBus: 0, bufferSize: 4096, format: hwFormat) { [weak self] buf, _ in
                 guard let self else { return }
                 // Write audio to file
-                try? self.audioFile?.write(from: buf)
+                do {
+                    try self.audioFile?.write(from: buf)
+                } catch {
+                    audioLogger.error("Tap write failed: \(error.localizedDescription, privacy: .public)")
+                }
                 // Compute level
                 let lvl = Self.rmsLevel(buf)
                 DispatchQueue.main.async { self.audioLevel = lvl }
@@ -34,13 +40,17 @@ class AudioRecorder: ObservableObject {
 
             audioEngine.prepare()
             try audioEngine.start()
-            DispatchQueue.main.async { self.isRecording = true }
+            DispatchQueue.main.async {
+                self.isRecording = true
+                audioLogger.notice("Recording started")
+            }
         } catch {
-            print("AudioRecorder startRecording error: \(error)")
+            audioLogger.error("Start failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
     func stopRecording(completion: @escaping (URL) -> Void) {
+        audioLogger.debug("Stop requested")
         audioEngine.inputNode.removeTap(onBus: 0)
         audioEngine.stop()
         audioFile = nil
@@ -48,6 +58,7 @@ class AudioRecorder: ObservableObject {
         DispatchQueue.main.async {
             self.isRecording = false
             self.audioLevel  = 0
+            audioLogger.notice("Recording stopped. File ready: \(self.recordingURL.lastPathComponent, privacy: .public)")
             completion(self.recordingURL)
         }
     }

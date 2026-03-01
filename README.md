@@ -1,6 +1,6 @@
 # SonoText
 
-**Sound to text.** A small macOS app that turns speech into text and pastes it into the frontmost app. Double-tap Control to start or stop dictation; transcription runs on-device with Whisper (no cloud required).
+**Sound to text.** A small macOS app that turns speech into text and pastes it into the frontmost app. Hold right Option (push-to-talk mode) or use right-Option double-tap mode; transcription runs on-device with Whisper (no cloud required).
 
 ---
 
@@ -9,10 +9,11 @@
 - **macOS 14+**
 - **Xcode** (or the Swift toolchain) with **Swift 5.9+**  
   - Swift is included with Xcode from the App Store, or install the [Swift toolchain](https://www.swift.org/install/) for the command line.
-- On first run you’ll be prompted for:
-  - **Microphone** access (for recording).
-  - **Accessibility** access (for pasting into other apps).  
-  Grant both for full functionality.
+- On first run, grant the permissions below for full functionality:
+  - **Microphone**: required for `AVAudioEngine` recording.
+  - **Accessibility**: required for simulated keystrokes/paste fallback.
+  - **Input Monitoring**: required for global right-Option hotkey detection.
+  - **Automation (System Events)**: used by AppleScript paste (`keystroke "v" using command down`) and improves paste reliability across apps.
 - **Network** (once): the app downloads the Whisper model (~145 MB) to `~/Library/Application Support/SonoText/Models/` on first launch.
 
 ---
@@ -22,7 +23,7 @@
 From the repo root:
 
 ```bash
-cd FlowApp
+cd SonoText
 swift build
 ```
 
@@ -40,13 +41,13 @@ Release build:
 swift build -c release
 ```
 
-The release binary is at `FlowApp/.build/release/SonoText`.
+The release binary is at `SonoText/.build/release/SonoText`.
 
 ---
 
 ## Run
 
-From the `FlowApp` directory:
+From the `SonoText` directory:
 
 ```bash
 swift run SonoText
@@ -58,4 +59,48 @@ Or run the release binary directly:
 ./.build/release/SonoText
 ```
 
-On first run, complete the one-time setup (model download if needed), then **double-tap Control (⌃⌃)** to start recording and again to stop; the transcript is pasted into the app that was active when you started.
+On first run, complete setup (model download if needed), then hold **right Option (⌥)** to dictate (push-to-talk). You can switch to right-Option double-tap toggle mode from the status-bar menu.
+
+---
+
+## Reset Permissions + Onboarding
+
+If you want a clean onboarding run, do these steps in order.
+
+1) Quit SonoText.
+
+2) Reset app state:
+
+```bash
+defaults delete com.sonotext.mac onboarding_complete 2>/dev/null || true
+defaults delete SonoText onboarding_complete 2>/dev/null || true
+```
+
+3) Reset TCC permissions (prompts will appear again next run):
+
+```bash
+tccutil reset Microphone com.sonotext.mac
+tccutil reset Accessibility com.sonotext.mac
+tccutil reset ListenEvent com.sonotext.mac
+tccutil reset AppleEvents com.sonotext.mac
+```
+
+If macOS does not track your local build under `com.sonotext.mac`, use System Settings manually:
+- Privacy & Security -> Microphone
+- Privacy & Security -> Accessibility
+- Privacy & Security -> Input Monitoring
+- Privacy & Security -> Automation (System Events)
+
+4) (Optional) force model-download onboarding again:
+
+```bash
+rm -rf "$HOME/Library/Application Support/SonoText/Models"
+```
+
+5) Start with the helper script from repo root:
+
+```bash
+./scripts/run-onboarding.sh --full
+```
+
+This script launches a stable app bundle at `/Applications/SonoText.app` (via `open`) and ad-hoc signs it so macOS permission prompts and TCC tracking behave like a normal app.

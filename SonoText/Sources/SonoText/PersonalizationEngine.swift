@@ -13,11 +13,18 @@ class PersonalizationEngine: ObservableObject {
     
     func getSystemPromptExtensions() -> String {
         var extensions = ""
+        let dictionaryEntries = customDictionaryStr
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        let snippetEntries = customSnippetsStr
+            .split(separator: "|")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
         
         if !customDictionaryStr.isEmpty {
             extensions += "\nUser's Personal Dictionary (Favor these spellings):\n"
-            let words = customDictionaryStr.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
-            extensions += words.joined(separator: ", ") + "\n"
+            extensions += dictionaryEntries.joined(separator: ", ") + "\n"
         }
         
         if !customSnippetsStr.isEmpty {
@@ -34,6 +41,10 @@ class PersonalizationEngine: ObservableObject {
         if activeStyle != "Neutral" {
             extensions += "\nOutput Style/Tone: \(activeStyle). Adjust the final text to match this tone.\n"
         }
+
+        personalizationLogger.debug(
+            "Prompt extensions built. dictionary=\(dictionaryEntries.count, privacy: .public) snippets=\(snippetEntries.count, privacy: .public) style=\(self.activeStyle, privacy: .public)"
+        )
         
         return extensions
     }

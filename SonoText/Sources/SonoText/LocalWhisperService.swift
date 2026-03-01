@@ -21,11 +21,14 @@ class LocalWhisperService: ObservableObject {
     
     func checkModelExists() -> Bool {
         let modelPath = modelDirectory.appendingPathComponent("openai_whisper-\(modelName)")
-        return FileManager.default.fileExists(atPath: modelPath.path)
+        let exists = FileManager.default.fileExists(atPath: modelPath.path)
+        whisperLogger.debug("Model check at \(modelPath.path, privacy: .public): exists=\(exists, privacy: .public)")
+        return exists
     }
     
     func downloadAndInitialize() async {
         let modelExists = checkModelExists()
+        whisperLogger.notice("Whisper initialize requested. model=\(self.modelName, privacy: .public) cached=\(modelExists, privacy: .public)")
         
         await MainActor.run {
             self.isDownloading = !modelExists
@@ -36,10 +39,11 @@ class LocalWhisperService: ObservableObject {
         do {
             // Create model directory if needed
             try FileManager.default.createDirectory(at: modelDirectory, withIntermediateDirectories: true)
+            whisperLogger.debug("Model directory ready at \(self.modelDirectory.path, privacy: .public)")
             
             await MainActor.run { self.downloadProgress = modelExists ? 0.6 : 0.2 }
             
-            logger.notice("🟢 Starting WhisperKit initialization with model: \(self.modelName)")
+            whisperLogger.notice("Starting WhisperKit init: \(self.modelName, privacy: .public)")
             
             // WhisperKit auto-downloads the model on first init
             let config = WhisperKitConfig(
@@ -67,10 +71,10 @@ class LocalWhisperService: ObservableObject {
                 self.isModelReady = true
                 self.isDownloading = false
                 self.statusMessage = "Ready"
-                logger.notice("🟢 WhisperKit model loaded and ready")
+                whisperLogger.notice("WhisperKit ready")
             }
         } catch {
-            logger.error("🔴 WhisperKit init error: \(error.localizedDescription)")
+            whisperLogger.error("WhisperKit init failed: \(error.localizedDescription, privacy: .public)")
             await MainActor.run {
                 self.statusMessage = "Error: \(error.localizedDescription)"
                 self.isDownloading = false
@@ -81,15 +85,18 @@ class LocalWhisperService: ObservableObject {
     
     func transcribe(audioURL: URL) async throws -> String {
         guard let kit = whisperKit else {
+            whisperLogger.error("Transcribe requested before model ready")
             throw NSError(domain: "SonoText", code: 1, userInfo: [NSLocalizedDescriptionKey: "Whisper model not loaded"])
         }
         
-        logger.notice("🟢 Transcribing with local Whisper: \(audioURL.lastPathComponent)")
+        whisperLogger.notice("Transcribe start: \(audioURL.lastPathComponent, privacy: .public)")
+        let startedAt = Date()
         
         let results = try await kit.transcribe(audioPath: audioURL.path)
         let text = results.map { $0.text }.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
         
-        logger.notice("🟢 Local transcription result: \(text)")
+        let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
+        whisperLogger.notice("Transcribe finished in \(elapsedMs, privacy: .public)ms. chars=\(text.count, privacy: .public)")
         return text
     }
 }

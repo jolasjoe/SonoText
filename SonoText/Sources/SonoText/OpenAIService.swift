@@ -29,6 +29,7 @@ class OpenAIService {
         guard let url = URL(string: "https://api.openai.com/v1/audio/transcriptions") else {
             throw URLError(.badURL)
         }
+        openAILogger.notice("OpenAI transcription request started. file=\(fileURL.lastPathComponent, privacy: .public)")
         
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -50,23 +51,28 @@ class OpenAIService {
         data.append(audioData)
         data.append("\r\n".data(using: .utf8)!)
         data.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        openAILogger.debug("Prepared multipart body bytes=\(data.count, privacy: .public)")
         
+        let startedAt = Date()
         let (responseData, response) = try await URLSession.shared.upload(for: request, from: data)
         let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+        let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
         
         guard statusCode == 200 else {
             let rawMsg = String(data: responseData, encoding: .utf8) ?? "No body"
             // Try to extract OpenAI's error.message from JSON
             let friendlyMsg = extractOpenAIError(from: responseData) ?? rawMsg
-            logger.error("🔴 Whisper error \(statusCode): \(rawMsg)")
+            openAILogger.error("Transcription HTTP \(statusCode, privacy: .public) after \(elapsedMs, privacy: .public)ms: \(rawMsg, privacy: .public)")
             throw OpenAIError.httpError(statusCode: statusCode, message: friendlyMsg)
         }
         
         guard let jsonResult = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
               let text = jsonResult["text"] as? String else {
+            openAILogger.error("Transcription parse error. bytes=\(responseData.count, privacy: .public)")
             throw OpenAIError.parseError
         }
         
+        openAILogger.notice("OpenAI transcription succeeded in \(elapsedMs, privacy: .public)ms. chars=\(text.count, privacy: .public)")
         return text
     }
     
@@ -74,6 +80,7 @@ class OpenAIService {
         guard let url = URL(string: "https://api.openai.com/v1/chat/completions") else {
             throw URLError(.badURL)
         }
+        openAILogger.notice("OpenAI polish request started. draftChars=\(draft.count, privacy: .public) contextChars=\(context.count, privacy: .public)")
         
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -110,13 +117,16 @@ class OpenAIService {
         ]
         
         let jsonData = try JSONSerialization.data(withJSONObject: payload)
+        openAILogger.debug("Prepared polish payload bytes=\(jsonData.count, privacy: .public)")
+        let startedAt = Date()
         let (responseData, response) = try await URLSession.shared.upload(for: request, from: jsonData)
         let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+        let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
         
         guard statusCode == 200 else {
             let rawMsg = String(data: responseData, encoding: .utf8) ?? "No body"
             let friendlyMsg = extractOpenAIError(from: responseData) ?? rawMsg
-            logger.error("🔴 GPT-4o error \(statusCode): \(rawMsg)")
+            openAILogger.error("Polish HTTP \(statusCode, privacy: .public) after \(elapsedMs, privacy: .public)ms: \(rawMsg, privacy: .public)")
             throw OpenAIError.httpError(statusCode: statusCode, message: friendlyMsg)
         }
         
@@ -124,10 +134,13 @@ class OpenAIService {
               let choices = jsonResult["choices"] as? [[String: Any]],
               let message = choices.first?["message"] as? [String: Any],
               let polishedText = message["content"] as? String else {
+            openAILogger.error("Polish parse error. bytes=\(responseData.count, privacy: .public)")
             throw OpenAIError.parseError
         }
         
-        return polishedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = polishedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        openAILogger.notice("OpenAI polish succeeded in \(elapsedMs, privacy: .public)ms. chars=\(trimmed.count, privacy: .public)")
+        return trimmed
     }
     
     private func extractOpenAIError(from data: Data) -> String? {

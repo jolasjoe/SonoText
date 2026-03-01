@@ -6,24 +6,31 @@ class KeystrokeSynthesizer {
     
     var isAccessibilityGranted: Bool {
         let options = [kAXTrustedCheckOptionPrompt.takeRetainedValue() as String: false]
-        return AXIsProcessTrustedWithOptions(options as CFDictionary)
+        let granted = AXIsProcessTrustedWithOptions(options as CFDictionary)
+        keystrokeLogger.debug("Accessibility check: granted=\(granted, privacy: .public)")
+        return granted
     }
     
     func requestAccessibility() {
         let options = [kAXTrustedCheckOptionPrompt.takeRetainedValue() as String: true]
         AXIsProcessTrustedWithOptions(options as CFDictionary)
+        keystrokeLogger.notice("Requested Accessibility permission prompt")
     }
     
     func copySelectedText() -> String? {
         let pb = NSPasteboard.general
         let prevCount = pb.changeCount
+        keystrokeLogger.debug("Copy selected text requested")
         
         simulateKeystroke(keyCode: 8, usingCommand: true)
         Thread.sleep(forTimeInterval: 0.15)
         
         if pb.changeCount > prevCount {
-            return pb.string(forType: .string)
+            let copied = pb.string(forType: .string)
+            keystrokeLogger.debug("Copy detected clipboard change. chars=\(copied?.count ?? 0, privacy: .public)")
+            return copied
         }
+        keystrokeLogger.debug("Copy found no new clipboard content")
         return nil
     }
     
@@ -32,11 +39,12 @@ class KeystrokeSynthesizer {
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(text, forType: .string)
+        keystrokeLogger.debug("Paste text staged. chars=\(text.count, privacy: .public) delay=\(delay, format: .fixed(precision: 2))s")
         
         // Delay allows the previous app to regain focus before we simulate Cmd+V
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
             self.simulateKeystroke(keyCode: 9, usingCommand: true)
-            logger.notice("🟢 Paste keystroke sent (delay: \(delay)s)")
+            keystrokeLogger.notice("Paste keystroke sent")
         }
     }
     
@@ -53,5 +61,6 @@ class KeystrokeSynthesizer {
         
         keyDown?.post(tap: .cghidEventTap)
         keyUp?.post(tap: .cghidEventTap)
+        keystrokeLogger.debug("Posted keystroke keyCode=\(keyCode, privacy: .public) cmd=\(usingCommand, privacy: .public)")
     }
 }

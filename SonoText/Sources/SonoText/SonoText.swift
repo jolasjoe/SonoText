@@ -1,9 +1,7 @@
 import SwiftUI
 import AppKit
+import AVFoundation
 import KeyboardShortcuts
-import os.log
-
-let logger = Logger(subsystem: "com.sonotext.mac", category: "SonoText")
 
 @main
 struct SonoText: App {
@@ -41,18 +39,33 @@ enum OnboardingStep {
 class AppState: ObservableObject {
     @Published var status: FlowStatus = .idle
     @Published var onboardingStep: OnboardingStep
+    @Published var isMicrophoneGranted: Bool
+    @Published var isAccessibilityGranted: Bool
+    @Published var isInputMonitoringGranted: Bool
     
     init() {
         self.onboardingStep = UserDefaults.standard.bool(forKey: "onboarding_complete") ? .done : .downloading
+        self.isMicrophoneGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        self.isAccessibilityGranted = KeystrokeSynthesizer.shared.isAccessibilityGranted
+        self.isInputMonitoringGranted = CGPreflightListenEventAccess()
     }
     
     var isOnboardingComplete: Bool { onboardingStep == .done }
+    var hasAllRequiredPermissions: Bool {
+        isMicrophoneGranted && isAccessibilityGranted && isInputMonitoringGranted
+    }
     
     func completeOnboarding() {
         UserDefaults.standard.set(true, forKey: "onboarding_complete")
         UserDefaults.standard.synchronize()
         onboardingStep = .done
         logger.notice("🟢 Onboarding marked complete")
+    }
+    
+    func refreshPermissions() {
+        isMicrophoneGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        isAccessibilityGranted = KeystrokeSynthesizer.shared.isAccessibilityGranted
+        isInputMonitoringGranted = CGPreflightListenEventAccess()
     }
 }
 
@@ -61,6 +74,7 @@ class AppState: ObservableObject {
 struct OnboardingView: View {
     @ObservedObject var appState: AppState
     @ObservedObject var whisperService: LocalWhisperService
+    private let permissionPollTimer = Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()
     
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -88,19 +102,23 @@ struct OnboardingView: View {
                 .fill(Color(nsColor: .windowBackgroundColor))
         )
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .onChange(of: appState.onboardingStep) { step in
+        .onChange(of: appState.onboardingStep) { _, step in
             if step == .done {
                 // Notify panel to resize to widget size
                 NotificationCenter.default.post(name: .sonotextOnboardingComplete, object: nil)
             }
         }
+        .onAppear { appState.refreshPermissions() }
+        .onReceive(permissionPollTimer) { _ in appState.refreshPermissions() }
     }
     
     var downloadingView: some View {
         VStack(alignment: .leading, spacing: 10) {
             checklistRow(icon: "arrow.down.circle", label: "Download Speech Model", done: false, active: true)
-            checklistRow(icon: "checkmark.seal.fill", label: "All Set — Start Dictating!", done: false, active: false)
+            checklistRow(icon: "checkmark.seal.fill", label: "Grant required permissions", done: appState.hasAllRequiredPermissions, active: !appState.hasAllRequiredPermissions)
             
+            Divider()
+            requiredPermissionsSection
             Divider()
             
             Text(whisperService.statusMessage)
@@ -117,15 +135,19 @@ struct OnboardingView: View {
     var readyView: some View {
         VStack(alignment: .leading, spacing: 10) {
             checklistRow(icon: "arrow.down.circle", label: "Download Speech Model", done: true, active: false)
-            checklistRow(icon: "checkmark.seal.fill", label: "All Set — Ready to dictate!", done: true, active: true)
+            checklistRow(icon: "checkmark.seal.fill", label: "Grant required permissions", done: appState.hasAllRequiredPermissions, active: !appState.hasAllRequiredPermissions)
             
+            Divider()
+            requiredPermissionsSection
             Divider()
             
             VStack(alignment: .leading, spacing: 4) {
                 Text("🎉 You're all set!")
                     .font(.system(size: 13, weight: .bold, design: .rounded))
                     .foregroundColor(.green)
-                Text("Double-tap Control (⌃⌃) to start/stop dictation.")
+                Text(appState.hasAllRequiredPermissions
+                     ? "Hold right Option (⌥) to dictate. You can switch to double-tap in the menu."
+                     : "Grant all required permissions to enable dictation and paste into other apps.")
                     .font(.system(size: 11, design: .rounded))
                     .foregroundColor(.secondary)
             }
@@ -135,14 +157,105 @@ struct OnboardingView: View {
                 Button(action: { appState.completeOnboarding() }) {
                     Text("Get Started")
                         .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(.black)
+                        .foregroundColor(appState.hasAllRequiredPermissions ? .black : .secondary)
                         .padding(.horizontal, 20)
                         .padding(.vertical, 6)
-                        .background(Capsule().fill(Color.green))
+                        .background(Capsule().fill(appState.hasAllRequiredPermissions ? Color.green : Color.gray.opacity(0.35)))
                 }
                 .buttonStyle(.plain)
+                .disabled(!appState.hasAllRequiredPermissions)
             }
         }
+    }
+    
+    var requiredPermissionsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Required Permissions")
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundColor(.secondary)
+            
+            permissionRow(
+                title: "Microphone",
+                granted: appState.isMicrophoneGranted,
+                action: requestMicrophonePermission
+            )
+            
+            permissionRow(
+                title: "Accessibility",
+                granted: appState.isAccessibilityGranted,
+                action: requestAccessibilityPermission
+            )
+            
+            permissionRow(
+                title: "Input Monitoring",
+                granted: appState.isInputMonitoringGranted,
+                actionTitle: "Open Settings",
+                action: requestInputMonitoringPermission
+            )
+            
+            if !appState.isInputMonitoringGranted {
+                Text("Needed for global right Option hotkey detection. You may need to re-open the app after granting.")
+                    .font(.system(size: 10, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+    
+    func permissionRow(title: String, granted: Bool, actionTitle: String = "Grant", action: @escaping () -> Void) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: granted ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .font(.system(size: 12))
+                .foregroundColor(granted ? .green : .orange)
+            
+            Text(title)
+                .font(.system(size: 12, design: .rounded))
+                .foregroundColor(.primary)
+            
+            Spacer()
+            
+            if granted {
+                Text("Granted")
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundColor(.green)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Capsule().fill(Color.green.opacity(0.12)))
+            } else {
+                Button(actionTitle) { action() }
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .buttonStyle(.borderedProminent)
+                    .tint(.blue)
+            }
+        }
+    }
+    
+    private func requestMicrophonePermission() {
+        AVCaptureDevice.requestAccess(for: .audio) { _ in
+            DispatchQueue.main.async {
+                appState.refreshPermissions()
+            }
+        }
+    }
+    
+    private func requestAccessibilityPermission() {
+        KeystrokeSynthesizer.shared.requestAccessibility()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            appState.refreshPermissions()
+        }
+    }
+    
+    private func requestInputMonitoringPermission() {
+        _ = CGRequestListenEventAccess()
+        openPrivacySettings(anchor: "ListenEvent")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            appState.refreshPermissions()
+        }
+    }
+    
+    private func openPrivacySettings(anchor: String) {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_\(anchor)") else { return }
+        NSWorkspace.shared.open(url)
     }
     
     func checklistRow(icon: String, label: String, done: Bool, active: Bool) -> some View {
@@ -194,6 +307,7 @@ struct WaveformBarsView: View {
 struct FloatingWidgetView: View {
     @ObservedObject var appState: AppState
     @ObservedObject var audioRecorder: AudioRecorder
+    @AppStorage("dictation_trigger_mode") private var triggerMode = "pushToTalk"
     var onClose: () -> Void
     
     var body: some View {
@@ -247,7 +361,7 @@ struct FloatingWidgetView: View {
     var statusLabel: some View {
         switch appState.status {
         case .idle:
-            Text("SonoText  ⌃⌃")
+            Text(triggerMode == "toggle" ? "SonoText  double-tap right ⌥" : "SonoText  hold right ⌥")
                 .font(.system(size: 13, weight: .medium, design: .rounded))
                 .foregroundColor(.primary)
         case .listening:
@@ -301,50 +415,76 @@ extension Notification.Name {
     static let sonotextOnboardingComplete = Notification.Name("sonotextOnboardingComplete")
 }
 
-// MARK: - Double-Tap Control Monitor
+// MARK: - Right Option Press Monitor
 
-class DoubleTapControlMonitor {
-    private var lastControlTapTime: Date?
+class RightOptionPressMonitor {
     private var eventMonitor: Any?
-    private let threshold: TimeInterval = 0.4
+    private var isRightOptionDown = false
+    private var lastRightOptionPressTime: Date?
+    private let doubleTapThreshold: TimeInterval = 0.4
+    var onPress: (() -> Void)?
+    var onRelease: (() -> Void)?
     var onDoubleTap: (() -> Void)?
     
     func start() {
+        let hasInputMonitoring = CGPreflightListenEventAccess()
+        if !hasInputMonitoring {
+            _ = CGRequestListenEventAccess()
+            logger.notice("🟢 Requested Input Monitoring permission prompt")
+        }
         eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
             guard let self = self else { return }
-            let otherModifiers: NSEvent.ModifierFlags = [.command, .shift, .option]
-            guard !event.modifierFlags.contains(otherModifiers) else { return }
-            guard event.modifierFlags.contains(.control) else { return }
-            
-            let now = Date()
-            if let last = self.lastControlTapTime, now.timeIntervalSince(last) < self.threshold {
-                self.lastControlTapTime = nil
-                logger.notice("🟢 Double-tap ⌃ detected")
-                DispatchQueue.main.async { self.onDoubleTap?() }
-            } else {
-                self.lastControlTapTime = now
+            // 61 is the right Option key (left Option is 58).
+            guard event.keyCode == 61 else { return }
+            let flagsPressed = event.modifierFlags.contains(.option)
+            let isPressedNow = flagsPressed
+            if isPressedNow && !self.isRightOptionDown {
+                self.isRightOptionDown = true
+                logger.notice("🟢 Right Option pressed")
+                DispatchQueue.main.async { self.onPress?() }
+
+                let now = Date()
+                if let last = self.lastRightOptionPressTime, now.timeIntervalSince(last) < self.doubleTapThreshold {
+                    self.lastRightOptionPressTime = nil
+                    logger.notice("🟢 Right Option double-tap detected")
+                    DispatchQueue.main.async { self.onDoubleTap?() }
+                } else {
+                    self.lastRightOptionPressTime = now
+                }
+            } else if !isPressedNow && self.isRightOptionDown {
+                self.isRightOptionDown = false
+                logger.notice("🟢 Right Option released")
+                DispatchQueue.main.async { self.onRelease?() }
             }
         }
-        logger.notice("🟢 Double-tap Control monitor started")
+        logger.notice("🟢 Right Option monitor started")
     }
     
     func stop() {
         if let m = eventMonitor { NSEvent.removeMonitor(m) }
         eventMonitor = nil
+        isRightOptionDown = false
+        lastRightOptionPressTime = nil
     }
 }
 
 // MARK: - App Delegate
 
 class AppDelegate: NSObject, NSApplicationDelegate {
+    private enum DictationTriggerMode: String {
+        case pushToTalk
+        case toggle
+    }
+
     var statusItem: NSStatusItem?
     var floatingPanel: NSPanel?
     let appState = AppState()
     let whisperService = LocalWhisperService.shared
     let audioRecorder = AudioRecorder()
-    let doubleTapMonitor = DoubleTapControlMonitor()
+    let rightOptionMonitor = RightOptionPressMonitor()
     private var capturedContext: String = ""
     private var previousApp: NSRunningApplication?
+    private let triggerModeKey = "dictation_trigger_mode"
     
     // Panel sizes
     private let onboardingSize = NSSize(width: 316, height: 290)
@@ -359,8 +499,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         setupFloatingPanel()
         constructMenu()
         
-        doubleTapMonitor.onDoubleTap = { [weak self] in self?.toggleRecording() }
-        doubleTapMonitor.start()
+        rightOptionMonitor.onPress = { [weak self] in self?.handleRightOptionPress() }
+        rightOptionMonitor.onRelease = { [weak self] in self?.handleRightOptionRelease() }
+        rightOptionMonitor.onDoubleTap = { [weak self] in self?.handleRightOptionDoubleTap() }
+        rightOptionMonitor.start()
         
         // Listen for onboarding completion to resize panel
         NotificationCenter.default.addObserver(
@@ -426,6 +568,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     @objc private func onboardingDidComplete() {
+        // Re-register the global hotkey monitor now that permissions are granted
+        rightOptionMonitor.stop()
+        rightOptionMonitor.start()
+        
         guard let panel = floatingPanel else { return }
         // Animate resize to compact widget
         NSAnimationContext.runAnimationGroup { ctx in
@@ -442,36 +588,92 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func showWidget() {
         floatingPanel?.orderFrontRegardless()
     }
+
+    private var triggerMode: DictationTriggerMode {
+        get {
+            let raw = UserDefaults.standard.string(forKey: triggerModeKey) ?? DictationTriggerMode.pushToTalk.rawValue
+            return DictationTriggerMode(rawValue: raw) ?? .pushToTalk
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: triggerModeKey)
+        }
+    }
+
+    private func handleRightOptionPress() {
+        guard triggerMode == .pushToTalk else { return }
+        startRecordingFromHotkey()
+    }
+
+    private func handleRightOptionRelease() {
+        guard triggerMode == .pushToTalk else { return }
+        stopRecordingFromHotkey()
+    }
+
+    private func handleRightOptionDoubleTap() {
+        guard triggerMode == .toggle else { return }
+        toggleRecordingFromHotkey()
+    }
     
-    @objc func toggleRecording() {
+    @objc private func startRecordingFromHotkey() {
         guard whisperService.isModelReady else {
             // Silently ignore — engine is loading
             NSSound(named: "Basso")?.play()
-            logger.notice("\"⏳ Engine still loading, ignoring double-tap\"")
+            logger.notice("\"⏳ Engine still loading, ignoring right Option press\"")
             return
         }
         guard appState.isOnboardingComplete else { return }
+        guard !audioRecorder.isRecording else { return }
+        if case .processing = appState.status { return }
 
-        if !audioRecorder.isRecording {
-            NSSound(named: "Pop")?.play()
-            previousApp = NSWorkspace.shared.frontmostApplication
-            let prevName = previousApp?.localizedName ?? "none"
-            logger.notice("🟢 Starting recording. Previous app: \(prevName, privacy: .public)")
-            appState.status = .listening
-            capturedContext = KeystrokeSynthesizer.shared.copySelectedText() ?? ""
-        } else {
-            NSSound(named: "Glass")?.play()
-            logger.notice("🟢 Stopping recording")
-            appState.status = .processing
-        }
-        
-        audioRecorder.toggleRecording { [weak self] url in
-            guard let self, let fileURL = url else { return }
+        NSSound(named: "Pop")?.play()
+        previousApp = NSWorkspace.shared.frontmostApplication
+        let prevName = previousApp?.localizedName ?? "none"
+        logger.notice("🟢 Starting recording. Previous app: \(prevName, privacy: .public)")
+        appState.status = .listening
+        capturedContext = KeystrokeSynthesizer.shared.copySelectedText() ?? ""
+        audioRecorder.startRecording()
+        updateUIIcon()
+    }
+
+    @objc private func stopRecordingFromHotkey() {
+        guard audioRecorder.isRecording else { return }
+
+        NSSound(named: "Glass")?.play()
+        logger.notice("🟢 Stopping recording")
+        appState.status = .processing
+        audioRecorder.stopRecording { [weak self] fileURL in
+            guard let self else { return }
             logger.notice("🟢 Recording saved: \(fileURL.lastPathComponent, privacy: .public)")
             self.processAudio(fileURL: fileURL)
         }
-        
         updateUIIcon()
+    }
+
+    @objc private func toggleRecordingFromHotkey() {
+        if audioRecorder.isRecording {
+            stopRecordingFromHotkey()
+        } else {
+            startRecordingFromHotkey()
+        }
+    }
+
+    @objc private func setPushToTalkMode() {
+        setTriggerMode(.pushToTalk)
+    }
+
+    @objc private func setToggleMode() {
+        setTriggerMode(.toggle)
+    }
+
+    private func setTriggerMode(_ mode: DictationTriggerMode) {
+        if triggerMode == mode { return }
+        triggerMode = mode
+        // Avoid carrying a recording across mode boundaries.
+        if audioRecorder.isRecording {
+            stopRecordingFromHotkey()
+        }
+        constructMenu()
+        logger.notice("🟢 Trigger mode changed to \(mode.rawValue, privacy: .public)")
     }
     
     private func updateUIIcon() {
@@ -507,8 +709,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 if let app = targetApp {
                     targetPid = app.processIdentifier
                     logger.notice("🟢 Activating: \(app.localizedName ?? "?", privacy: .public) PID=\(targetPid, privacy: .public)")
-                    await MainActor.run {
-                        app.activate(options: .activateIgnoringOtherApps)
+                    _ = await MainActor.run {
+                        app.activate(options: [])
                     }
                     // Poll until the app is frontmost (up to 1.5s)
                     for _ in 0..<30 {
@@ -566,8 +768,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     func constructMenu() {
         let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "Show Widget", action: #selector(showWidget), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Toggle Dictation (⌃⌃)", action: #selector(toggleRecording), keyEquivalent: ""))
+        let showItem = NSMenuItem(title: "Show Widget", action: #selector(showWidget), keyEquivalent: "")
+        showItem.target = self
+        menu.addItem(showItem)
+
+        menu.addItem(.separator())
+
+        let pushItem = NSMenuItem(title: "Push-to-Talk (hold right ⌥)", action: #selector(setPushToTalkMode), keyEquivalent: "")
+        pushItem.target = self
+        pushItem.state = triggerMode == .pushToTalk ? .on : .off
+        menu.addItem(pushItem)
+
+        let toggleItem = NSMenuItem(title: "Toggle (double-tap right ⌥)", action: #selector(setToggleMode), keyEquivalent: "")
+        toggleItem.target = self
+        toggleItem.state = triggerMode == .toggle ? .on : .off
+        menu.addItem(toggleItem)
+
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit SonoText", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem?.menu = menu

@@ -11,8 +11,9 @@ struct SettingsView: View {
             // General Settings
             Form {
                 SecureField("OpenAI API Key", text: $openAIApiKey)
-                    .onChange(of: openAIApiKey) { newValue in
+                    .onChange(of: openAIApiKey) { _, newValue in
                         UserDefaults.standard.set(newValue, forKey: "OPENAI_API_KEY")
+                        settingsLogger.notice("OpenAI API key updated. chars=\(newValue.count, privacy: .public)")
                     }
                     .help("Required for Whisper and GPT-4o processing.")
             }
@@ -27,6 +28,13 @@ struct SettingsView: View {
                 TextEditor(text: $engine.customDictionaryStr)
                     .frame(height: 100)
                     .border(Color.gray.opacity(0.3))
+                    .onChange(of: engine.customDictionaryStr) { _, newValue in
+                        let entries = newValue
+                            .split(separator: ",")
+                            .map { $0.trimmingCharacters(in: .whitespaces) }
+                            .filter { !$0.isEmpty }
+                        settingsLogger.debug("Dictionary updated. entries=\(entries.count, privacy: .public)")
+                    }
             }
             .padding()
             .tabItem { Text("Dictionary") }
@@ -39,6 +47,13 @@ struct SettingsView: View {
                 TextEditor(text: $engine.customSnippetsStr)
                     .frame(height: 100)
                     .border(Color.gray.opacity(0.3))
+                    .onChange(of: engine.customSnippetsStr) { _, newValue in
+                        let entries = newValue
+                            .split(separator: "|")
+                            .map { $0.trimmingCharacters(in: .whitespaces) }
+                            .filter { !$0.isEmpty }
+                        settingsLogger.debug("Snippets updated. entries=\(entries.count, privacy: .public)")
+                    }
             }
             .padding()
             .tabItem { Text("Snippets") }
@@ -51,6 +66,9 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(RadioGroupPickerStyle())
+                .onChange(of: engine.activeStyle) { _, style in
+                    settingsLogger.notice("Writing style changed: \(style, privacy: .public)")
+                }
             }
             .padding()
             .tabItem { Text("Styles") }
