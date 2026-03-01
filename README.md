@@ -4,6 +4,32 @@
 
 ---
 
+## Quick Start (recommended)
+
+Use the app-bundle launcher script from the repo root. This is the reliable path for macOS privacy permissions (especially Input Monitoring).
+
+```bash
+git clone https://github.com/jolasjoe/sonotext.git
+cd sonotext
+./scripts/run-onboarding.sh
+```
+
+If `/Applications` is not writable on your machine, run:
+
+```bash
+sudo ./scripts/run-onboarding.sh
+```
+
+On first launch, complete onboarding and grant:
+- Microphone
+- Accessibility
+- Input Monitoring
+- Automation (System Events)
+
+If macOS shows "cannot be opened because the developer cannot be verified", right-click `SonoText.app` in `/Applications`, then choose **Open**.
+
+---
+
 ## Prerequisites
 
 - **macOS 14+**
@@ -47,15 +73,18 @@ The release binary is at `SonoText/.build/release/SonoText`.
 
 ## Run
 
-From the `SonoText` directory:
+Preferred (from repo root):
 
 ```bash
-swift run SonoText
+./scripts/run-onboarding.sh
 ```
 
-Or run the release binary directly:
+Alternative developer-only run paths (may not register Input Monitoring correctly on some systems):
 
 ```bash
+cd SonoText
+swift run SonoText
+# or
 ./.build/release/SonoText
 ```
 
@@ -101,6 +130,8 @@ rm -rf "$HOME/Library/Application Support/SonoText/Models"
 
 ```bash
 ./scripts/run-onboarding.sh --full
+# use sudo if needed:
+# sudo ./scripts/run-onboarding.sh --full
 ```
 
 This script launches a stable app bundle at `/Applications/SonoText.app` (via `open`) and ad-hoc signs it so macOS permission prompts and TCC tracking behave like a normal app.
@@ -113,8 +144,5 @@ SonoText uses the following open source libraries:
 
 - **[WhisperKit](https://github.com/argmaxinc/WhisperKit)** by Argmax — on-device speech-to-text using OpenAI's Whisper models. Used for all transcription in this app.  
   License: [MIT](https://github.com/argmaxinc/WhisperKit/blob/main/LICENSE)
-
-- **[KeyboardShortcuts](https://github.com/sindresorhus/KeyboardShortcuts)** by Sindre Sorhus — keyboard shortcut handling for macOS.  
-  License: [MIT](https://github.com/sindresorhus/KeyboardShortcuts/blob/main/license)
 
 WhisperKit in turn relies on [Swift Transformers](https://github.com/huggingface/swift-transformers), [Swift Jinja](https://github.com/argmaxinc/swift-jinja), and [Swift Collections](https://github.com/apple/swift-collections). Thanks to OpenAI for the [Whisper](https://github.com/openai/whisper) model architecture and to all contributors of the above projects.

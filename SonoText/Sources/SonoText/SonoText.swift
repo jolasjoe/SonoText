@@ -1,7 +1,6 @@
 import SwiftUI
 import AppKit
 import AVFoundation
-import KeyboardShortcuts
 
 @main
 struct SonoText: App {
@@ -57,7 +56,6 @@ class AppState: ObservableObject {
     
     func completeOnboarding() {
         UserDefaults.standard.set(true, forKey: "onboarding_complete")
-        UserDefaults.standard.synchronize()
         onboardingStep = .done
         logger.notice("🟢 Onboarding marked complete")
     }
@@ -176,18 +174,21 @@ struct OnboardingView: View {
             
             permissionRow(
                 title: "Microphone",
+                subtitle: "Capture your voice for dictation.",
                 granted: appState.isMicrophoneGranted,
                 action: requestMicrophonePermission
             )
             
             permissionRow(
                 title: "Accessibility",
+                subtitle: "Paste text into whichever app you were using.",
                 granted: appState.isAccessibilityGranted,
                 action: requestAccessibilityPermission
             )
             
             permissionRow(
                 title: "Input Monitoring",
+                subtitle: "Detect global right Option hotkey presses.",
                 granted: appState.isInputMonitoringGranted,
                 actionTitle: "Open Settings",
                 action: requestInputMonitoringPermission
@@ -202,15 +203,21 @@ struct OnboardingView: View {
         }
     }
     
-    func permissionRow(title: String, granted: Bool, actionTitle: String = "Grant", action: @escaping () -> Void) -> some View {
-        HStack(spacing: 8) {
+    func permissionRow(title: String, subtitle: String, granted: Bool, actionTitle: String = "Grant", action: @escaping () -> Void) -> some View {
+        HStack(alignment: .top, spacing: 8) {
             Image(systemName: granted ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                 .font(.system(size: 12))
                 .foregroundColor(granted ? .green : .orange)
+                .padding(.top, 2)
             
-            Text(title)
-                .font(.system(size: 12, design: .rounded))
-                .foregroundColor(.primary)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.system(size: 12, design: .rounded))
+                    .foregroundColor(.primary)
+                Text(subtitle)
+                    .font(.system(size: 10, design: .rounded))
+                    .foregroundColor(.secondary)
+            }
             
             Spacer()
             
@@ -482,7 +489,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let whisperService = LocalWhisperService.shared
     let audioRecorder = AudioRecorder()
     let rightOptionMonitor = RightOptionPressMonitor()
-    private var capturedContext: String = ""
     private var previousApp: NSRunningApplication?
     private let triggerModeKey = "dictation_trigger_mode"
     
@@ -524,6 +530,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     if case .error = self.appState.status {
                         self.appState.status = .idle
                     }
+                } else if self.appState.isOnboardingComplete {
+                    self.appState.status = .error("Speech model failed to load. Re-launch onboarding.")
                 }
             }
         }
@@ -616,7 +624,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     @objc private func startRecordingFromHotkey() {
         guard whisperService.isModelReady else {
-            // Silently ignore — engine is loading
+            transientError("Speech model still loading")
             NSSound(named: "Basso")?.play()
             logger.notice("\"⏳ Engine still loading, ignoring right Option press\"")
             return
@@ -624,14 +632,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard appState.isOnboardingComplete else { return }
         guard !audioRecorder.isRecording else { return }
         if case .processing = appState.status { return }
+        guard appState.hasAllRequiredPermissions else {
+            transientError("Permissions needed. Open setup.")
+            NSSound(named: "Basso")?.play()
+            return
+        }
 
         NSSound(named: "Pop")?.play()
         previousApp = NSWorkspace.shared.frontmostApplication
         let prevName = previousApp?.localizedName ?? "none"
         logger.notice("🟢 Starting recording. Previous app: \(prevName, privacy: .public)")
         appState.status = .listening
-        capturedContext = KeystrokeSynthesizer.shared.copySelectedText() ?? ""
-        audioRecorder.startRecording()
+        let didStart = audioRecorder.startRecording()
+        if !didStart {
+            appState.status = .error("Could not access microphone")
+        }
         updateUIIcon()
     }
 
@@ -692,7 +707,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else {
                     logger.notice("🟢 Empty transcription, skipping paste")
-                    await MainActor.run { self.appState.status = .idle }
+                    await MainActor.run {
+                        self.transientError("Nothing heard")
+                    }
                     return
                 }
                 
@@ -725,8 +742,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 
                 // 4. Paste using AppleScript (most reliable cross-app method)
                 await MainActor.run {
-                    self.pasteViaAppleScript()
-                    self.appState.status = .idle
+                    if self.pasteViaAppleScript() {
+                        self.appState.status = .idle
+                    } else {
+                        self.transientError("Could not paste into target app")
+                    }
                 }
                 
             } catch {
@@ -736,7 +756,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
     
-    private func pasteViaAppleScript() {
+    private func pasteViaAppleScript() -> Bool {
         // AppleScript "keystroke v using command down" is the most reliable way
         // to paste into the frontmost application on macOS
         let script = NSAppleScript(source: """
@@ -749,21 +769,42 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let err = errorDict {
             logger.error("🔴 AppleScript paste error: \(err, privacy: .public)")
             // Fallback to CGEvent
-            simulatePasteCGEvent()
+            return simulatePasteCGEvent()
         } else {
             logger.notice("🟢 Paste sent via AppleScript")
+            return true
         }
     }
     
-    private func simulatePasteCGEvent() {
+    private func simulatePasteCGEvent() -> Bool {
         let src = CGEventSource(stateID: .hidSystemState)
         let vDown = CGEvent(keyboardEventSource: src, virtualKey: 9, keyDown: true)
         let vUp   = CGEvent(keyboardEventSource: src, virtualKey: 9, keyDown: false)
-        vDown?.flags = .maskCommand
-        vUp?.flags   = .maskCommand
-        vDown?.post(tap: .cghidEventTap)
-        vUp?.post(tap: .cghidEventTap)
+        guard let vDown, let vUp else {
+            logger.error("🔴 CGEvent paste fallback creation failed")
+            return false
+        }
+        vDown.flags = .maskCommand
+        vUp.flags   = .maskCommand
+        vDown.post(tap: .cghidEventTap)
+        vUp.post(tap: .cghidEventTap)
         logger.notice("🟢 Paste sent via CGEvent fallback")
+        return true
+    }
+    
+    private func transientError(_ message: String, duration: UInt64 = 2_000_000_000) {
+        appState.status = .error(message)
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: duration)
+            await self?.clearTransientErrorIfNeeded(message)
+        }
+    }
+    
+    @MainActor
+    private func clearTransientErrorIfNeeded(_ message: String) {
+        if case .error(let current) = appState.status, current == message {
+            appState.status = .idle
+        }
     }
     
     func constructMenu() {

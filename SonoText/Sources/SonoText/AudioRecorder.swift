@@ -17,7 +17,8 @@ class AudioRecorder: ObservableObject {
         audioLogger.debug("Recorder initialized. Output path: \(self.recordingURL.path, privacy: .public)")
     }
 
-    func startRecording() {
+    @discardableResult
+    func startRecording() -> Bool {
         let inputNode = audioEngine.inputNode
         let hwFormat  = inputNode.outputFormat(forBus: 0)
         audioLogger.debug("Start requested. sampleRate=\(hwFormat.sampleRate, format: .fixed(precision: 0)) channels=\(hwFormat.channelCount, privacy: .public)")
@@ -44,8 +45,10 @@ class AudioRecorder: ObservableObject {
                 self.isRecording = true
                 audioLogger.notice("Recording started")
             }
+            return true
         } catch {
             audioLogger.error("Start failed: \(error.localizedDescription, privacy: .public)")
+            return false
         }
     }
 
@@ -67,7 +70,7 @@ class AudioRecorder: ObservableObject {
         if isRecording {
             stopRecording { url in completion(url) }
         } else {
-            startRecording()
+            _ = startRecording()
             completion(nil)
         }
     }

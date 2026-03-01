@@ -8,6 +8,7 @@ BUNDLE_DIR="/Applications/SonoText.app"
 BUNDLE_CONTENTS_DIR="$BUNDLE_DIR/Contents"
 BUNDLE_MACOS_DIR="$BUNDLE_CONTENTS_DIR/MacOS"
 BUNDLE_PLIST_PATH="$BUNDLE_CONTENTS_DIR/Info.plist"
+SOURCE_PLIST_PATH="$APP_DIR/Resources/Info.plist"
 BINARY_PATH="$APP_DIR/.build/release/SonoText"
 
 FULL_RESET=0
@@ -40,6 +41,22 @@ if [[ ! -d "$APP_DIR" ]]; then
   exit 1
 fi
 
+if ! command -v swift >/dev/null 2>&1; then
+  echo "swift not found in PATH. Install Xcode Command Line Tools or Swift toolchain." >&2
+  exit 1
+fi
+
+if [[ ! -f "$SOURCE_PLIST_PATH" ]]; then
+  echo "Info.plist source file not found: $SOURCE_PLIST_PATH" >&2
+  exit 1
+fi
+
+if [[ ! -w "/Applications" ]]; then
+  echo "No write permission to /Applications. Re-run with sudo:" >&2
+  echo "  sudo ./scripts/run-onboarding.sh [--full]" >&2
+  exit 1
+fi
+
 echo "Stopping any running SonoText process..."
 pkill -x SonoText >/dev/null 2>&1 || true
 
@@ -56,7 +73,7 @@ echo "Preparing clean release build..."
 (
   cd "$APP_DIR"
   swift package clean
-) || true
+)
 rm -rf "$APP_DIR/.build"
 
 echo "Building release executable..."
@@ -75,39 +92,7 @@ rm -rf "$BUNDLE_DIR"
 mkdir -p "$BUNDLE_MACOS_DIR"
 cp "$BINARY_PATH" "$BUNDLE_MACOS_DIR/SonoText"
 chmod +x "$BUNDLE_MACOS_DIR/SonoText"
-
-cat > "$BUNDLE_PLIST_PATH" <<'EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleDevelopmentRegion</key>
-    <string>en</string>
-    <key>CFBundleExecutable</key>
-    <string>SonoText</string>
-    <key>CFBundleIdentifier</key>
-    <string>com.sonotext.mac</string>
-    <key>CFBundleInfoDictionaryVersion</key>
-    <string>6.0</string>
-    <key>CFBundleName</key>
-    <string>SonoText</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
-    <key>CFBundleVersion</key>
-    <string>1</string>
-    <key>LSMinimumSystemVersion</key>
-    <string>14.0</string>
-    <key>LSUIElement</key>
-    <true/>
-    <key>NSMicrophoneUsageDescription</key>
-    <string>SonoText needs microphone access to record your dictation.</string>
-    <key>NSAppleEventsUsageDescription</key>
-    <string>SonoText needs automation access to paste dictation into your active app.</string>
-</dict>
-</plist>
-EOF
+cp "$SOURCE_PLIST_PATH" "$BUNDLE_PLIST_PATH"
 
 if command -v codesign >/dev/null 2>&1; then
   echo "Signing app bundle (ad-hoc)..."

@@ -15,7 +15,7 @@ struct SettingsView: View {
                         UserDefaults.standard.set(newValue, forKey: "OPENAI_API_KEY")
                         settingsLogger.notice("OpenAI API key updated. chars=\(newValue.count, privacy: .public)")
                     }
-                    .help("Required for Whisper and GPT-4o processing.")
+                    .help("Optional: only required for GPT-4o text polishing.")
             }
             .padding()
             .tabItem { Text("General") }
