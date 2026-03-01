@@ -154,3 +154,41 @@ If `tccutil` doesn't affect the local build (bundle not tracked yet), reset manu
 
 ### Input Monitoring not listing the app in System Settings
 Only proper `.app` bundles with a stable bundle identifier are reliably listed by TCC for Input Monitoring. Running via `swift run` (CLI binary) will often not appear. Always launch via `scripts/run-onboarding.sh` which installs an ad-hoc-signed bundle to `/Applications/SonoText.app`.
+
+### Microphone permission prompt not appearing in release builds (hardened runtime)
+When `codesign --options runtime` is used (required for notarization), the app runs under **hardened runtime**, which silently denies capabilities unless explicitly declared in an entitlements file. Without `com.apple.security.device.audio-input`, `AVCaptureDevice.requestAccess(for: .audio)` returns `granted: false` immediately and no system prompt appears — the app is not even listed in System Settings → Microphone.
+
+**Fix:** Always pass `--entitlements SonoText/Resources/SonoText.entitlements` to every `codesign` command. The entitlements file declares:
+- `com.apple.security.device.audio-input` — microphone
+- `com.apple.security.network.client` — outbound network (for WhisperKit model download, OpenAI)
+- `com.apple.security.automation.apple-events` — AppleScript automation for paste
+
+This applies to **all** codesign calls: the GitHub Actions workflow, `scripts/run-onboarding.sh`, `scripts/build-dmg.sh`, and `scripts/build-release-dmg.sh`. Debug builds (ad-hoc signed without `--options runtime`) don't enforce entitlements, which is why the issue only appears in release builds.
+
+### Accessibility password dialog not accepting keyboard input (floating panel focus)
+`KeyablePanel` (NSPanel) floats above all windows and captures keyboard focus. When the system shows a password dialog for Accessibility permission, the panel steals focus so the user cannot type.
+
+**Fix:** In `requestAccessibilityPermission()`, call `NSApp.keyWindow?.resignKey()` and `NSApp.deactivate()` before triggering the Accessibility prompt. This lets the system password dialog become the key window.
+
+### Hotkey not working before onboarding completion
+`startRecordingFromHotkey()` originally guarded on `appState.isOnboardingComplete`, which is only set after clicking "Get Started". Users who grant all permissions but haven't clicked the button cannot use the hotkey.
+
+**Fix:** Guard on `appState.isOnboardingComplete || appState.hasAllRequiredPermissions`.
+
+### `swift build` "readonly database" / "Permission denied" in local scripts
+Running `sudo ./scripts/run-onboarding.sh` creates root-owned files in `.build/`. Subsequent non-sudo runs fail with permission errors.
+
+**Fix:** Local scripts use `--build-path "$ROOT_DIR/.build-onboarding"` (or `.build-release`) to isolate from the default `.build/` directory. Never run local build scripts with `sudo` — the script writes to `/Applications` which may need sudo, but the build itself should not.
+
+## Release Workflow
+
+The release DMG is built and notarized via `.github/workflows/release-dmg.yml`. See `docs/RELEASE-NOTARIZATION.md` for full setup.
+
+**Key points:**
+- Triggered by `release: published` on any branch
+- Requires 6 Apple Developer secrets in GitHub repo settings (workflow fails early if missing)
+- Uses a **Developer ID Application** certificate (not "Apple Development")
+- Signs with hardened runtime + entitlements, notarizes via `xcrun notarytool`, staples the ticket
+- DMG includes an `/Applications` symlink for drag-to-install
+- The temporary keychain must be added to the search list (`security list-keychains -d user -s`) for `codesign` to find the identity
+- Output: `SonoText-<tag>.dmg` uploaded to the GitHub release
