@@ -104,3 +104,17 @@ rm -rf "$HOME/Library/Application Support/SonoText/Models"
 ```
 
 This script launches a stable app bundle at `/Applications/SonoText.app` (via `open`) and ad-hoc signs it so macOS permission prompts and TCC tracking behave like a normal app.
+
+---
+
+## Credits
+
+SonoText uses the following open source libraries:
+
+- **[WhisperKit](https://github.com/argmaxinc/WhisperKit)** by Argmax — on-device speech-to-text using OpenAI's Whisper models. Used for all transcription in this app.  
+  License: [MIT](https://github.com/argmaxinc/WhisperKit/blob/main/LICENSE)
+
+- **[KeyboardShortcuts](https://github.com/sindresorhus/KeyboardShortcuts)** by Sindre Sorhus — keyboard shortcut handling for macOS.  
+  License: [MIT](https://github.com/sindresorhus/KeyboardShortcuts/blob/main/license)
+
+WhisperKit in turn relies on [Swift Transformers](https://github.com/huggingface/swift-transformers), [Swift Jinja](https://github.com/argmaxinc/swift-jinja), and [Swift Collections](https://github.com/apple/swift-collections). Thanks to OpenAI for the [Whisper](https://github.com/openai/whisper) model architecture and to all contributors of the above projects.
