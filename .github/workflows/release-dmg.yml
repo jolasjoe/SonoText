@@ -1,0 +1,43 @@
+# Runs when a release is published: builds the app, creates a .dmg, and uploads it to the release.
+name: Release DMG
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build-and-upload-dmg:
+    runs-on: macos-latest
+    env:
+      DMG_NAME: SonoText-${{ github.event.release.tag_name }}.dmg
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build release binary
+        run: |
+          cd SonoText
+          swift build -c release
+
+      - name: Create app bundle
+        run: |
+          BUNDLE_DIR="$RUNNER_TEMP/SonoText.app"
+          mkdir -p "$BUNDLE_DIR/Contents/MacOS"
+          cp SonoText/.build/release/SonoText "$BUNDLE_DIR/Contents/MacOS/SonoText"
+          chmod +x "$BUNDLE_DIR/Contents/MacOS/SonoText"
+          cp SonoText/Resources/Info.plist "$BUNDLE_DIR/Contents/Info.plist"
+
+      - name: Ad-hoc sign app bundle
+        run: |
+          codesign --force --deep --sign - "$RUNNER_TEMP/SonoText.app"
+
+      - name: Create DMG
+        run: |
+          hdiutil create -volname "SonoText" -srcfolder "$RUNNER_TEMP/SonoText.app" -ov -format UDZO "$GITHUB_WORKSPACE/$DMG_NAME"
+
+      - name: Upload DMG to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" "$GITHUB_WORKSPACE/$DMG_NAME" --clobber
