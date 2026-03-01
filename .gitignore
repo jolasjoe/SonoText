@@ -20,6 +20,7 @@ DerivedData/
 
 # Custom SwiftPM scratch builds
 .swift-build*/
+.build-release/
 
 # Local distribution artifacts
 dist/
