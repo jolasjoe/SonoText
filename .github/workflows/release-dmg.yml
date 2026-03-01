@@ -5,6 +5,10 @@ on:
   release:
     types: [published]
 
+# Required for uploading assets to the release.
+permissions:
+  contents: write
+
 jobs:
   build-and-upload-dmg:
     runs-on: macos-latest
